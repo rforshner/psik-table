@@ -1,0 +1,40 @@
+body {
+    display: flex;
+    flex-direction: column;
+    font-family: 'Rubik', sans-serif;
+}
+
+.container {
+    direction: rtl;
+    text-align: justify;
+    margin: 0;
+    padding: 0.5em;
+    background-color: lightgrey;
+    border-radius: 0.4em;
+    box-shadow: 0.1em 0.2em;
+    animation: slide-in 1s;
+}
+
+@keyframes slide-in {
+    from {
+        margin: 0 90%;
+    }
+    to {
+        margin: 0;
+    }
+}
+
+#search {
+    border: 0.2em solid black;
+    border-radius: 1em;
+    padding: 0.4em 1em;
+    margin: 0 25%;
+}
+
+#citations {
+    margin: 1em 25% 0;
+    display: grid;
+    grid-template: 1fr / 1fr;
+    grid-auto-rows: auto;
+    grid-gap: 0.5em;
+}
