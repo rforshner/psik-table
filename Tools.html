@@ -68,9 +68,20 @@ button{
 
 <div class="wrap">
 
+<p>&nbsp;</p>
+<h3 style="text-align: center;"><a href="https://rforshner.github.io/psik-table/">Psik Tools</a></h3>
+<h3 style="text-align: center;"><a href="https://rforshner.github.io/psik-table/KOTARPICS.htm">Kotar Tools</a></h3>
+<h3 style="text-align: center;"><a href="https://rforshner.github.io/psik-table/Tools.html">Script Tools</a></h3>
+<p>&nbsp;</p>
+
 <div class="radios">
 <label>
-<input type="radio" name="choice" value="makepdf" checked>
+<input type="radio" name="choice" value="first" checked>
+Choose Script
+</label>
+
+<label>
+<input type="radio" name="choice" value="makepdf">
 Make Pdf Trio BAT
 </label>
 
@@ -89,6 +100,16 @@ Kotar HTML Download js
 Psik Auto-Open
 </label>
 
+<label>
+<input type="radio" name="choice" value="NLIpdf">
+NLI PDF + Copy + Next
+</label>
+
+<label>
+<input type="radio" name="choice" value="NLImonth">
+NLI Month Page Floating
+</label>
+
 </div>
 
 <textarea id="mainText" readonly></textarea>
@@ -98,6 +119,10 @@ Psik Auto-Open
 <button onclick="copyCurrent()">העתק</button>
 
 </div>
+
+<textarea id="first" class="source">
+Choose
+</textarea>
 
 <textarea id="makepdf" class="source">
 @echo off
@@ -757,6 +782,284 @@ document.body.appendChild(wrapper);
   log("userscript loaded in", window.top === window ? "top" : "frame");
 })();
 </textarea>
+
+<textarea id="NLIpdf" class="source">
+// ==UserScript==
+// @name         NLI PDF + Copy + Next
+// @namespace    nli-tools
+// @version      1.5
+// @match        https://www.nli.org.il/he/newspapers/*/*/*/*/*/*
+// @run-at       document-idle
+// @grant        GM_setClipboard
+// ==/UserScript==
+
+(function () {
+  "use strict";
+
+  function cleanText(str) {
+    return str
+      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function monthNumber(monthName) {
+    const map = {
+      "ינואר": "01",
+      "פברואר": "02",
+      "מרץ": "03",
+      "אפריל": "04",
+      "מאי": "05",
+      "יוני": "06",
+      "יולי": "07",
+      "אוגוסט": "08",
+      "ספטמבר": "09",
+      "אוקטובר": "10",
+      "נובמבר": "11",
+      "דצמבר": "12"
+    };
+    return map[monthName] || monthName;
+  }
+
+  function extractTitle() {
+    const h1 = document.querySelector("#documentdisplayheader h1");
+    if (!h1) return "";
+
+    const text = cleanText(h1.textContent);
+    const parts = text.split(",");
+
+    if (parts.length < 2) return text;
+
+    const newspaper = cleanText(parts[0]);
+    const datePart = cleanText(parts[1]);
+
+    const m = datePart.match(/(\d{1,2})\s+([^\s]+)\s+(\d{4})/);
+    if (!m) return text;
+
+    const day = m[1].padStart(2, "0");
+    const monthHeb = m[2];
+    const year = m[3];
+    const monthNum = monthNumber(monthHeb);
+
+    return `${newspaper}, ${year}, ${monthNum} ${monthHeb} ${day}`;
+  }
+
+  function findPdfUrl() {
+    const a = document.querySelector('a.pdflink[href*="type=staticpdf"]');
+    if (!a) return null;
+    return new URL(a.getAttribute("href"), location.origin).href;
+  }
+
+  function findNextIssueUrl() {
+    const a = document.querySelector('#tutorialnextdocumentlink a[title="גיליון הבא"]');
+    if (!a) return null;
+    return new URL(a.getAttribute("href"), location.origin).href;
+  }
+
+  function makeButton() {
+    const btn = document.createElement("button");
+    btn.textContent = "פתח + הבא";
+
+    Object.assign(btn.style, {
+      position: "fixed",
+      left: "520px",
+      top: "110px",
+      zIndex: "999999",
+      padding: "10px 14px",
+      background: "#ffffff",
+      border: "2px solid #333",
+      borderRadius: "8px",
+      cursor: "pointer",
+      fontSize: "16px",
+      fontFamily: "Arial",
+      direction: "rtl",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.25)"
+    });
+
+    btn.addEventListener("click", function () {
+      const title = extractTitle();
+      const pdfUrl = findPdfUrl();
+      const nextUrl = findNextIssueUrl();
+
+      if (title) {
+        GM_setClipboard(title);
+      }
+
+      if (pdfUrl) {
+        window.open(pdfUrl, "_blank");
+      } else {
+        alert("לא נמצא PDF");
+        return;
+      }
+
+      if (nextUrl) {
+        location.href = nextUrl;
+      }
+    });
+
+    document.body.appendChild(btn);
+  }
+
+  makeButton();
+})();
+</textarea>
+
+<textarea id="NLImonth" class="source">
+// ==UserScript==
+// @name         NLI Month Page Floating PDF + Copy Title + Toggle
+// @namespace    nli-tools
+// @version      1.2
+// @match        https://www.nli.org.il/he/newspapers/*/*/*
+// @run-at       document-idle
+// @grant        GM_setClipboard
+// ==/UserScript==
+
+(function () {
+  "use strict";
+
+  function cleanText(str) {
+    return str
+      .replace(/[\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function getNewspaperName() {
+    const el = document.querySelector("#breadcrumbscell .breadcrumb-item:last-child");
+    if (!el) return "";
+    return cleanText(el.textContent);
+  }
+
+  function monthName(num) {
+    const map = {
+      "01": "ינואר",
+      "02": "פברואר",
+      "03": "מרץ",
+      "04": "אפריל",
+      "05": "מאי",
+      "06": "יוני",
+      "07": "יולי",
+      "08": "אוגוסט",
+      "09": "ספטמבר",
+      "10": "אוקטובר",
+      "11": "נובמבר",
+      "12": "דצמבר"
+    };
+    return map[num] || num;
+  }
+
+  function getIssueLinks() {
+    const links = [...document.querySelectorAll(
+      ".datebrowserricharddocuments a[href*='/he/newspapers/']"
+    )];
+
+    const newspaper = getNewspaperName();
+
+    return links.map(a => {
+      const href = new URL(a.getAttribute("href"), location.origin).href;
+
+      const m = href.match(/\/newspapers\/([^/]+)\/(\d{4})\/(\d{2})\/(\d{2})\/(\d{2})\//);
+      if (!m) return null;
+
+      const year = m[2];
+      const month = m[3];
+      const day = m[4];
+      const oid = `${m[1]}${year}${month}${day}-${m[5]}`;
+
+      const label = `${day}/${month}/${year}`;
+
+      const pdfUrl =
+        `${location.origin}/he/newspapers/?a=is&oid=${oid}&type=staticpdf&e=-------he-20--1--img-txIN%7CtxTI--------------1`;
+
+      const title = `${newspaper}, ${year}, ${month} ${monthName(month)} ${day}`;
+
+      return { label, pdfUrl, title };
+    }).filter(Boolean);
+  }
+
+  function makeFloatingBar() {
+    const issues = getIssueLinks();
+    if (!issues.length) return;
+
+    const container = document.createElement("div");
+
+    Object.assign(container.style, {
+      position: "fixed",
+      right: "12px",
+      top: "90px",
+      zIndex: "999999",
+      display: "flex",
+      flexDirection: "column",
+      gap: "4px"
+    });
+
+    const toggleBtn = document.createElement("button");
+    toggleBtn.textContent = "☰";
+
+    Object.assign(toggleBtn.style, {
+      padding: "4px 6px",
+      cursor: "pointer",
+      border: "1px solid #666",
+      borderRadius: "5px",
+      background: "#ddd",
+      fontSize: "12px"
+    });
+
+    const box = document.createElement("div");
+
+    Object.assign(box.style, {
+      display: "flex",
+      flexDirection: "column",
+      gap: "4px",
+      padding: "6px",
+      background: "#ffffff",
+      border: "1px solid #999",
+      borderRadius: "8px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+      maxHeight: "80vh",
+      overflowY: "auto",
+      direction: "ltr"
+    });
+
+    let open = true;
+
+    toggleBtn.addEventListener("click", () => {
+      open = !open;
+      box.style.display = open ? "flex" : "none";
+    });
+
+    issues.forEach(issue => {
+      const btn = document.createElement("button");
+      btn.textContent = issue.label;
+
+      Object.assign(btn.style, {
+        fontSize: "12px",
+        padding: "4px 7px",
+        cursor: "pointer",
+        border: "1px solid #aaa",
+        borderRadius: "5px",
+        background: "#f8f8f8",
+        fontFamily: "Arial"
+      });
+
+      btn.addEventListener("click", () => {
+        GM_setClipboard(issue.title);
+        window.open(issue.pdfUrl, "_blank", "noopener");
+      });
+
+      box.appendChild(btn);
+    });
+
+    container.appendChild(toggleBtn);
+    container.appendChild(box);
+    document.body.appendChild(container);
+  }
+
+  makeFloatingBar();
+})();
+</textarea>
+
+
 
 <script>
 const mainText = document.getElementById("mainText");
