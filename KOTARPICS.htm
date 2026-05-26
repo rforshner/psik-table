@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8">
+  <title>שליפת gid ו-v בגישה טקסטואלית (2 כפתורים)</title>
+  <style>
+    body {
+      direction: rtl;
+      font-family: sans-serif;
+      margin: 20px;
+      max-width: 750px;
+    }
+    textarea {
+      width: 100%;
+      height: 300px;
+    }
+    button {
+      margin: 5px;
+      padding: 10px;
+      font-size: 1rem;
+    }
+    pre {
+      background: #f2f2f2;
+      padding: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>שלוף gid ו-v מתוך הטקסט והפק שני קבצים אפשריים</h1>
+<p>
+הדבק כאן את התוכן, שבו מופיעים בלוקים בסגנון:
+</p>
+<pre>
+bookid=114969839
+{'o':true, 'pid':..., 'gid':'ff478d7c-...', ... 'v': 11, ...}
+</pre>
+<p>
+ולא משנה אם זה JSON חוקי או לא; נעשה שליפה טקסטואלית עם Regex.
+</p>
+
+<textarea id="rawData" placeholder="הדבק כאן את הטקסט שלך..."></textarea>
+<br>
+<button id="extractTxtButton">צור קובץ TXT</button>
+<button id="extractHtmlButton">צור קובץ HTML</button>
+
+<script>
+function downloadFile(content, filename) {
+  const blob = new Blob([content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+// חיפוש bookid מתוך הטקסט
+function getBookId(text) {
+  const match = text.match(/bookid\s*=\s*([^\s]+)/i);
+  return match ? match[1] : "";
+}
+
+function extractLinks(text) {
+  const regex = /'gid':\s*'([^']+)'[^}]*?'v':\s*(\d+)/g;
+  const baseUrl = "https://kotarimagesstg.cet.ac.il/GetPageImg_v2.ashx?Type=page_img";
+
+  let match;
+  const links = [];
+
+  while ((match = regex.exec(text)) !== null) {
+    const gidValue = match[1];
+    const vValue   = match[2];
+    const url = `${baseUrl}&gPageToken=${gidValue}&nStep=7&nVersion=${vValue}`;
+    links.push(url);
+  }
+  return links;
+}
+
+document.getElementById("extractTxtButton").addEventListener("click", () => {
+  const text = document.getElementById("rawData").value;
+  if (!text) {
+    alert("לא הדבקת שום טקסט.");
+    return;
+  }
+
+  const links = extractLinks(text);
+  if (links.length === 0) {
+    alert("לא נמצאו gid/v. בדוק שהטקסט בפורמט הנכון.");
+    return;
+  }
+
+  const bookId = getBookId(text);
+  const fileName = bookId ? `${bookId}.txt` : "download_links.txt";
+
+  const fileContent = links.join("\n");
+  downloadFile(fileContent, fileName);
+});
+
+document.getElementById("extractHtmlButton").addEventListener("click", () => {
+  const text = document.getElementById("rawData").value;
+  if (!text) {
+    alert("לא הדבקת שום טקסט.");
+    return;
+  }
+
+  const links = extractLinks(text);
+  if (links.length === 0) {
+    alert("לא נמצאו gid/v. בדוק שהטקסט בפורמט הנכון.");
+    return;
+  }
+
+  let htmlContent = `<html>\n<head><meta charset="UTF-8"></head>\n<body>\n`;
+  htmlContent += `<h2>קישורים שנמצאו (${links.length}):</h2>\n`;
+  links.forEach(link => {
+    htmlContent += `<a href="${link}" target="_blank">${link}</a><br>\n`;
+  });
+  htmlContent += `</body>\n</html>`;
+
+  const bookId = getBookId(text);
+  const fileName = bookId ? `ktr${bookId}.html` : "download_links.html";
+
+  downloadFile(htmlContent, fileName);
+});
+</script>
+</body>
+</html>
