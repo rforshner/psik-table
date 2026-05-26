@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="he" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>Script Copier</title>
+
+<style>
+body{
+    margin:0;
+    background:#f5f5f5;
+    font-family:Arial,sans-serif;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    min-height:100vh;
+}
+
+.wrap{
+    width:90%;
+    max-width:1000px;
+    text-align:left;
+}
+
+.radios{
+    margin-bottom:20px;
+}
+
+.radios label{
+    display:block;
+    margin:10px;
+    font-size:18px;
+    cursor:pointer;
+}
+
+#mainText{
+    width:100%;
+    height:500px;
+    box-sizing:border-box;
+    padding:18px;
+    border:1px solid #bbb;
+    border-radius:10px;
+    resize:vertical;
+    font-family:Consolas,monospace;
+    font-size:14px;
+    direction:ltr;
+    text-align:left;
+    background:white;
+}
+
+button{
+    margin-top:18px;
+    padding:12px 28px;
+    font-size:18px;
+    border:none;
+    border-radius:10px;
+    cursor:pointer;
+    background:#222;
+    color:white;
+}
+
+.source{
+    display:none;
+}
+</style>
+</head>
+
+<body>
+
+<div class="wrap">
+
+<div class="radios">
+<label>
+<input type="radio" name="choice" value="makepdf" checked>
+Make Pdf Trio BAT
+</label>
+
+<label>
+<input type="radio" name="choice" value="trio">
+Kotar Trio js
+</label>
+
+<label>
+<input type="radio" name="choice" value="kotar">
+Kotar HTML Download js
+</label>
+
+<label>
+<input type="radio" name="choice" value="psikopen">
+Psik Auto-Open
+</label>
+
+</div>
+
+<textarea id="mainText" readonly></textarea>
+
+<br>
+
+<button onclick="copyCurrent()">העתק</button>
+
+</div>
+
+<textarea id="makepdf" class="source">
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+
+rem ===== הגדרות =====
+set "PATTERNS=jpg jpeg png bmp tif tiff webp"
+set "DENSITY=300"
+set "PAGE=A4"
+set "OUTDIR=%~dp0"
+rem ===================
+
+if "%~1"=="" (
+    echo גרור תיקייה אחת או יותר על קובץ ה-BAT
+    pause
+    exit /b
+)
+
+:loop
+if "%~1"=="" goto done
+
+if not exist "%~1\" (
+    echo מדלג: "%~1" אינו תיקייה
+    shift
+    goto loop
+)
+
+call :processDir "%~1"
+shift
+goto loop
+
+:done
+echo Done
+pause
+exit /b
+
+
+:processDir
+set "FOLDER=%~1"
+set "FOLDERNAME=%~nx1"
+set "PDF=%OUTDIR%%FOLDERNAME%.pdf"
+
+pushd "%FOLDER%" >nul 2>&1 || goto :eof
+
+del /q /f files.tmp files.txt 2>nul
+
+for %%P in (%PATTERNS%) do dir /b /on "*.%%P" 2>nul >> files.tmp
+
+if not exist files.tmp (
+    echo אין תמונות בתיקייה: "%FOLDER%"
+    popd
+    goto :eof
+)
+
+for /f %%C in ('type files.tmp ^| find /c /v ""') do set COUNT=%%C
+
+if "!COUNT!"=="0" (
+    del /q /f files.tmp 2>nul
+    popd
+    goto :eof
+)
+
+sort files.tmp > files.txt
+del /q /f files.tmp 2>nul
+
+echo [%FOLDER%] -^> "%PDF%"  (!COUNT! images)
+
+magick @files.txt -auto-orient -units PixelsPerInch -density %DENSITY% ^
+ -define pdf:fit-page=%PAGE% -compress jpeg -quality 90 "%PDF%"
+
+del /q /f files.txt 2>nul
+popd
+goto :eof
+</textarea>
+
+<textarea id="trio" class="source">
+// ==UserScript==
+// @name         Kotar Viewer: Copy tools trio (bookid prefix)
+// @namespace    kotar-copy-tools
+// @version      1.3
+// @description  שלושה כפתורים משמאל: העתק קטע קוד, העתק ID, העתק שם הספר. בכפתור "העתק קטע קוד" מתווסף קו ראשון bookid=<ID>
+// @match        https://kotar.cet.ac.il/KotarApp/Viewer.aspx*
+// @match        https://school-kotar-cet-ac-il.mgs.dyellin.ac.il/*
+// @run-at       document-idle
+// @grant        GM_setClipboard
+// @grant        GM_addStyle
+// @grant        GM_xmlhttpRequest
+// @connect      kotar.cet.ac.il
+// ==/UserScript==
+
+(function () {
+  "use strict";
+
+  // ===== UI =====
+  const wrap = document.createElement("div");
+  wrap.id = "kotarCopyToolsWrap";
+  document.body.appendChild(wrap);
+
+  GM_addStyle(`
+    #kotarCopyToolsWrap {
+      position: fixed; left: 12px; top: 50%; transform: translateY(-50%);
+      z-index: 999999; display: flex; flex-direction: column; gap: 8px;
+    }
+    .kotarBtn {
+      padding: 10px 14px; background: #1f2937; color: #fff;
+      border: none; border-radius: 10px; cursor: pointer; font-family: inherit; font-size: 14px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.25); opacity: 0.92;
+    }
+    .kotarBtn:hover { opacity: 1 }
+    #kotarToast {
+      position: fixed; left: 12px; top: calc(50% + 80px); transform: translateY(-50%);
+      z-index: 1000000; padding: 8px 12px; background: #10b981; color: #fff;
+      border-radius: 8px; font-size: 13px; font-family: inherit; display: none;
+    }
+  `);
+
+  const btn1 = document.createElement("button");
+  btn1.className = "kotarBtn";
+  btn1.textContent = "העתק קטע קוד";
+  const btn2 = document.createElement("button");
+  btn2.className = "kotarBtn";
+  btn2.textContent = "העתק ID";
+  const btn3 = document.createElement("button");
+  btn3.className = "kotarBtn";
+  btn3.textContent = "העתק שם הספר";
+
+  wrap.append(btn1, btn2, btn3);
+
+  const toast = document.createElement("div");
+  toast.id = "kotarToast";
+  document.body.appendChild(toast);
+  function showToast(msg, ok = true) {
+    toast.textContent = msg;
+    toast.style.background = ok ? "#10b981" : "#ef4444";
+    toast.style.display = "block";
+    setTimeout(() => (toast.style.display = "none"), 2200);
+  }
+
+  // ===== Helper: current nBookID from URL =====
+  function getCurrentBookId() {
+    try {
+      const u = new URL(location.href);
+      return u.searchParams.get("nBookID") || "";
+    } catch {
+      const m = /[?&]nBookID=([^&#]+)/.exec(location.href);
+      return m ? decodeURIComponent(m[1]) : "";
+    }
+  }
+
+  // ===== Button 1: העתק קטע קוד, עם prefixed bookid=<ID> =====
+  const startRe = /<script[^>]*>\s*var\s+cartlink\s*=\s*['"]\/KotarApp\/Shop\/AddToCart\.aspx\?site=default['"];\s*var\s+oPagesInfo\s*=/i;
+  const endRe = /<\/script>\s*<script\s+src=["']Shop\/JS\/Cart\.js["']><\/script>\s*<script[^>]*>\s*var\s+AppSettingsIsEnableCetEvent\s*=\s*['"]true['"];\s*var\s+AppSettingsIsEnableDebounceAjax\s*=\s*['"]true['"];\s*var\s+AppSettingsIsEnableMobile\s*=\s*['"]true['"];\s*<\/script>/i;
+
+  async function copyRequestedBlock() {
+    try {
+      const html = document.documentElement.outerHTML;
+      const s = startRe.exec(html);
+      if (!s) { showToast("לא נמצאה תחילת המקטע", false); return; }
+      const tail = html.slice(s.index);
+      const e = endRe.exec(tail);
+      if (!e) { showToast("לא נמצא סוף המקטע", false); return; }
+      const extracted = tail.slice(0, e.index + e[0].length);
+
+      const bookId = getCurrentBookId();
+      if (!bookId) { showToast("לא נמצא ID בכתובת", false); return; }
+
+      const combined = `bookid=${bookId}\n` + extracted;
+
+      await copyText(combined);
+      showToast("הועתק קטע הקוד");
+    } catch (err) {
+      console.error(err);
+      showToast("שגיאה בהעתקת קטע הקוד", false);
+    }
+  }
+
+  // ===== Button 2: העתק ID =====
+  async function copyIdFromUrl() {
+    const id = getCurrentBookId();
+    if (!id) { showToast("לא נמצא ID בכתובת", false); return; }
+    await copyText(id);
+    showToast("הועתק ID");
+  }
+
+  // ===== Button 3: העתק שם הספר =====
+  function sanitizeTitle(t) {
+    let title = (t || "").trim();
+    title = title.replace(/^קראו\s+בכותר\s*-\s*/u, "");
+    title = title.replace(/:/g, "-");
+    title = title.replace(/[?!]/g, "");
+    title = title.replace(/\s*-\s*/g, " - ").replace(/\s{2,}/g, " ").trim();
+    title = title.replace(/"/g, "'");
+    return title;
+  }
+
+  function fetchTitleByBookId(bookId) {
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: "GET",
+        url: `https://kotar.cet.ac.il/KotarApp/Viewer.aspx?nBookID=${encodeURIComponent(bookId)}`,
+        timeout: 20000,
+        onload: (res) => {
+          if (res.status < 200 || res.status >= 300) {
+            reject(new Error("סטטוס " + res.status));
+            return;
+          }
+          try {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(res.responseText, "text/html");
+            let title = doc.querySelector("title")?.textContent || "";
+            title = sanitizeTitle(title);
+            if (!title) {
+              reject(new Error("לא נמצאה כותרת"));
+              return;
+            }
+            resolve(title);
+          } catch (e) {
+            reject(e);
+          }
+        },
+        onerror: () => reject(new Error("שגיאה בשליפת הדף")),
+        ontimeout: () => reject(new Error("פג תוקף הבקשה")),
+      });
+    });
+  }
+
+  async function copyBookTitle() {
+    try {
+      const bookId = getCurrentBookId();
+      if (!bookId) { showToast("לא נמצא ID בכתובת", false); return; }
+      const title = await fetchTitleByBookId(bookId);
+      await copyText(title);
+      showToast("הועתק שם ספר");
+    } catch (err) {
+      console.error(err);
+      showToast("שגיאה בהעתקת שם ספר", false);
+    }
+  }
+
+  // ===== Clipboard helper =====
+  async function copyText(text) {
+    let copied = false;
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        copied = true;
+      }
+    } catch {}
+    if (!copied && typeof GM_setClipboard === "function") {
+      GM_setClipboard(text, { type: "text", mimetype: "text/plain" });
+      copied = true;
+    }
+    if (!copied) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+  }
+
+  // ===== Events =====
+  btn1.addEventListener("click", copyRequestedBlock);
+  btn2.addEventListener("click", copyIdFromUrl);
+  btn3.addEventListener("click", copyBookTitle);
+})();
+</textarea>
+
+<textarea id="kotar" class="source">
+// ==UserScript==
+// @name         Ordered Link Downloader with HTML filename prefix
+// @namespace    ordered-link-downloader
+// @version      1.1
+// @description  יוריד את כל <a href> לפי סדר הופעתם עם קידומת שם הקובץ המקורי (ללא .html) + מספר רץ 0000.jpeg וכו'
+// @match        file:///*
+// @run-at       document-end
+// @grant        GM_download
+// ==/UserScript==
+
+(function () {
+  "use strict";
+
+  // מוציא את שם הקובץ המקורי (לפני .html)
+  let baseName = "output";
+  try {
+    const urlPath = window.location.pathname;
+    const lastPart = urlPath.substring(urlPath.lastIndexOf("/") + 1);
+    baseName = lastPart.replace(/\.html?$/i, "");
+  } catch (e) {
+    console.log("לא הצלחתי לחלץ שם קובץ, משתמש ב-output");
+  }
+
+  const anchors = Array.from(document.querySelectorAll("a[href]"));
+  if (!anchors.length) return;
+
+  // יוצר כפתור להורדה
+  const btn = document.createElement("button");
+  btn.textContent = "התחל הורדה ממוספרת";
+  Object.assign(btn.style, {
+    position: "fixed",
+    top: "10px",
+    left: "10px",
+    zIndex: 999999,
+    padding: "8px 12px",
+    fontFamily: "sans-serif",
+    fontSize: "14px",
+    cursor: "pointer"
+  });
+  document.body.appendChild(btn);
+
+  btn.addEventListener("click", () => {
+    btn.disabled = true;
+    btn.textContent = "מוריד...";
+    downloadSequentially(anchors);
+  });
+
+  function downloadSequentially(aTags) {
+    const urls = aTags
+      .map(a => a.getAttribute("href"))
+      .filter(href => href && /^https?:\/\//i.test(href));
+
+    let i = 0;
+
+    const next = () => {
+      if (i >= urls.length) {
+        btn.textContent = `הושלם (${urls.length} קבצים)`;
+        return;
+      }
+      const url = urls[i];
+      const filename = `${baseName}_${String(i).padStart(4, "0")}.jpeg`;
+      i++;
+
+      GM_download({
+        url,
+        name: filename,
+        onload: () => next(),
+        onerror: () => next()
+      });
+    };
+
+    next();
+  }
+})();
+</textarea>
+
+<textarea id="psikopen" class="source">
+// ==UserScript==
+// @name         Psik Auto-Open
+// @namespace    psik-auto-open
+// @version      8.3
+// @match        https://ebooks.psik.io/*
+// @match        https://*.psik.io/*
+// @run-at       document-start
+// @inject-into  page
+// @grant        none
+// ==/UserScript==
+
+(function () {
+  "use strict";
+
+  const S3_HOST = "psik-ebooks-storage-israel.s3.il-central-1.amazonaws.com";
+  const seen = new Set();
+  const log = (...a) => console.log("[Psik Auto]", ...a);
+
+  const queryBookNameAndAuthors = `query Get_book_fulldata_by_book_id($book_id: ID!) {
+    get_book_fulldata_by_book_id(book_id: $book_id) {
+      book_name
+      book_authors
+    }
+  }`;
+
+  async function bookDetailsForCopy(book_id) {
+    return fetch("https://api-ebooks.psik.io/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+      },
+      body: JSON.stringify({
+        query: queryBookNameAndAuthors,
+        variables: { book_id: book_id },
+      }),
+    })
+      .then((r) => r.json())
+      .then((obj) => obj.data.get_book_fulldata_by_book_id)
+      .catch(console.error);
+  }
+
+  function sanitize(text) {
+    return String(text || "")
+      .replace(/:/g, "-")
+      .replace(/[?!]/g, "")
+      .replace(/"/g, "'")
+      .replace(/[\\/*<>|]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  async function copyBookInfoMain(button) {
+    const match = location.pathname.match(/\/book\/(\d+)\//);
+    if (!match) return alert("לא נמצא book_id בכתובת");
+
+    const bookId = match[1];
+    const data = await bookDetailsForCopy(bookId);
+    if (!data) return alert("לא נמצאו פרטי ספר");
+
+    const authors = Array.isArray(data.book_authors)
+      ? data.book_authors.map(sanitize).join(", ")
+      : "";
+
+    const bookName = sanitize(data.book_name);
+    const text = `${authors} - ${bookName}`;
+
+    try {
+      await navigator.clipboard.writeText(text);
+      console.log("[Psik Copy] copied to clipboard:", text);
+
+      if (button) {
+        const oldText = button.textContent;
+        button.textContent = "✅ הועתק";
+        setTimeout(() => button.textContent = oldText, 1200);
+      }
+    } catch (e) {
+      console.error("[Psik Copy] failed to copy", e);
+      alert("ההעתקה נכשלה");
+    }
+  }
+
+  const looksLikeSignedS3 = (u) => {
+    try {
+      const url = new URL(u);
+      if (url.host !== S3_HOST) return false;
+      if (!url.pathname.endsWith(".pdf")) return false;
+      return url.searchParams.has("X-Amz-Algorithm")
+          && url.searchParams.has("X-Amz-Credential")
+          && url.searchParams.has("X-Amz-Date")
+          && url.searchParams.has("X-Amz-Expires")
+          && url.searchParams.has("X-Amz-Signature");
+    } catch { return false; }
+  };
+
+  function openOnce(u) {
+    try {
+      if (!u || seen.has(u)) return;
+      if (!looksLikeSignedS3(u)) return;
+      seen.add(u);
+      log("Captured:", u);
+      window.open(u, "_blank", "noopener");
+    } catch (e) { log("openOnce error", e); }
+  }
+
+  async function inspectResponse(res) {
+    try {
+      if (!res) return;
+      if (res.url && looksLikeSignedS3(res.url)) {
+        openOnce(res.url);
+        return;
+      }
+
+      const ct = (res.headers && res.headers.get && res.headers.get("content-type")) || "";
+      if (ct.includes("application/json")) {
+        const text = await res.clone().text().catch(() => "");
+        const m = text.match(/https:\/\/psik-ebooks-storage-israel\.s3\.il-central-1\.amazonaws\.com\/[^\s"']+/i);
+        if (m) openOnce(m[0]);
+      }
+    } catch (e) { log("inspectResponse error", e); }
+  }
+
+function createGiantButton() {
+  if (window.top !== window.self) return;
+  if (document.getElementById("psik-auto-buttons")) return;
+
+    const wrapper = document.createElement("div");
+    wrapper.id = "psik-auto-buttons";
+
+    Object.assign(wrapper.style, {
+      position: "fixed",
+      bottom: "20px",
+      left: "50%",
+      transform: "translateX(-50%)",
+      zIndex: "10000",
+      display: "flex",
+      gap: "12px",
+      direction: "rtl"
+    });
+
+    const openBtn = document.createElement("button");
+    openBtn.innerHTML = "🚀 פתח PDF אוטומטית";
+
+    Object.assign(openBtn.style, {
+      width: "250px",
+      height: "60px",
+      backgroundColor: "#00c853",
+      color: "white",
+      fontSize: "20px",
+      fontWeight: "bold",
+      border: "4px solid white",
+      borderRadius: "15px",
+      cursor: "pointer",
+      boxShadow: "0 10px 25px rgba(0,0,0,0.5)"
+    });
+
+    openBtn.onclick = function() {
+      const target = Array.from(document.querySelectorAll("h2.bookDescriptionOtherOptions, span, button"))
+        .find(el => el.textContent.includes("פרק ראשון"));
+
+      if (target) {
+        target.click();
+      }
+    };
+
+    const copyBtn = document.createElement("button");
+    copyBtn.textContent = "📋 העתק כותר";
+
+    Object.assign(copyBtn.style, {
+      width: "160px",
+      height: "60px",
+      backgroundColor: "#1976d2",
+      color: "white",
+      fontSize: "19px",
+      fontWeight: "bold",
+      border: "4px solid white",
+      borderRadius: "15px",
+      cursor: "pointer",
+      boxShadow: "0 10px 25px rgba(0,0,0,0.5)"
+    });
+
+    copyBtn.onclick = () => copyBookInfoMain(copyBtn);
+
+function getCurrentBookId() {
+  const match = location.pathname.match(/\/book\/(\d+)\//);
+  return match ? Number(match[1]) : null;
+}
+
+function openBookByOffset(offset) {
+  const currentId = getCurrentBookId();
+  if (!currentId) return alert("לא נמצא book_id בכתובת");
+
+  const newId = currentId + offset;
+  const url = `https://ebooks.psik.io/book/${newId}/ה/`;
+  window.open(url, "_blank", "noopener");
+}
+
+const nextBtn = document.createElement("button");
+nextBtn.textContent = "➡️";
+
+Object.assign(nextBtn.style, {
+  width: "70px",
+  height: "60px",
+  backgroundColor: "#ffffff",
+  color: "white",
+  fontSize: "28px",
+  fontWeight: "bold",
+  border: "4px solid white",
+  borderRadius: "15px",
+  cursor: "pointer",
+  boxShadow: "0 10px 25px rgba(0,0,0,0.5)"
+});
+
+nextBtn.onclick = () => openBookByOffset(1);
+
+const prevBtn = document.createElement("button");
+prevBtn.textContent = "⬅️";
+
+Object.assign(prevBtn.style, {
+  width: "70px",
+  height: "60px",
+  backgroundColor: "#ffffff",
+  color: "white",
+  fontSize: "28px",
+  fontWeight: "bold",
+  border: "4px solid white",
+  borderRadius: "15px",
+  cursor: "pointer",
+  boxShadow: "0 10px 25px rgba(0,0,0,0.5)"
+});
+
+prevBtn.onclick = () => openBookByOffset(-1);
+
+wrapper.appendChild(nextBtn);
+wrapper.appendChild(openBtn);
+wrapper.appendChild(copyBtn);
+wrapper.appendChild(prevBtn);
+
+document.body.appendChild(wrapper);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", createGiantButton);
+  } else {
+    createGiantButton();
+  }
+
+  setTimeout(createGiantButton, 2000);
+
+  const origFetch = window.fetch;
+  window.fetch = function (...args) {
+    try {
+      const a0 = args[0];
+      const u = typeof a0 === "string" ? a0 : (a0 && (a0.url || a0.href));
+      if (u) openOnce(String(u));
+    } catch {}
+
+    const p = origFetch.apply(this, args);
+    p.then(res => { try { inspectResponse(res); } catch {} });
+    return p;
+  };
+
+  const origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+    try { if (url) openOnce(String(url)); } catch {}
+    return origOpen.call(this, method, url, ...rest);
+  };
+
+  try {
+    const po = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry && entry.name) openOnce(entry.name);
+      }
+    });
+    po.observe({ type: "resource", buffered: true });
+  } catch {}
+
+  const mo = new MutationObserver((mut) => {
+    for (const m of mut) {
+      for (const n of m.addedNodes) {
+        if (!(n instanceof Element)) continue;
+
+        if (n.tagName === "A" && n.href) openOnce(n.href);
+        if (n.tagName === "IFRAME" && n.src) openOnce(n.src);
+
+        n.querySelectorAll?.("a[href],iframe[src]").forEach(el => {
+          if (el.tagName === "A") openOnce(el.href);
+          else if (el.tagName === "IFRAME") openOnce(el.src);
+        });
+      }
+
+      if (m.type === "attributes" && m.target instanceof Element) {
+        const el = m.target;
+        if (el.tagName === "A" && el.href) openOnce(el.href);
+        if (el.tagName === "IFRAME" && el.src) openOnce(el.src);
+      }
+    }
+  });
+
+  mo.observe(document.documentElement, {
+    subtree: true,
+    childList: true,
+    attributes: true,
+    attributeFilter: ["href", "src"]
+  });
+
+  log("userscript loaded in", window.top === window ? "top" : "frame");
+})();
+</textarea>
+
+<script>
+const mainText = document.getElementById("mainText");
+
+function updateText() {
+    const selected = document.querySelector('input[name="choice"]:checked').value;
+    mainText.value = document.getElementById(selected).value.trim();
+}
+
+document.querySelectorAll('input[name="choice"]').forEach(radio => {
+    radio.addEventListener("change", updateText);
+});
+
+function copyCurrent() {
+    mainText.select();
+    document.execCommand("copy");
+}
+
+updateText();
+</script>
+
+</body>
+</html>
